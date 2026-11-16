@@ -837,5 +837,20 @@ class DotEngine(
             if (mediaItemIndex == _state.value.index) this@DotEngine.seekTo(positionMs) else jumpTo(mediaItemIndex)
         }
         override fun stop() = this@DotEngine.pause(fade = false)
+        override fun setRepeatMode(repeatMode: Int) {
+            _state.value = _state.value.copy(repeat = repeatMode)
+            active.repeatMode = repeatMode
+            settings.repeat.set(repeatMode)
+        }
+        override fun getRepeatMode(): Int = _state.value.repeat
+        override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+            if (shuffleModeEnabled != _state.value.shuffle) toggleShuffle()
+        }
+        override fun getShuffleModeEnabled(): Boolean = _state.value.shuffle
+        override fun getAvailableCommands(): Player.Commands =
+            super.getAvailableCommands().buildUpon()
+                .add(Player.COMMAND_SET_REPEAT_MODE)
+                .add(Player.COMMAND_SET_SHUFFLE_MODE)
+                .build()
     }
 }

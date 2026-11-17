@@ -99,6 +99,34 @@ fun Song.toMediaItem(): MediaItem = MediaItem.Builder()
     .build()
 
 /**
+ * Merges the current queue back into the original un-shuffled order.
+ * Tracks retained from the original list stay in their original relative positions,
+ * tracks removed while shuffled are omitted, and newly queued tracks are appended.
+ */
+internal fun unshuffled(original: List<Song>, queue: List<Song>): List<Song> {
+    val remainingCounts = HashMap<Long, Int>(queue.size)
+    for (song in queue) {
+        remainingCounts[song.id] = (remainingCounts[song.id] ?: 0) + 1
+    }
+    val result = ArrayList<Song>(queue.size)
+    for (song in original) {
+        val count = remainingCounts[song.id] ?: 0
+        if (count > 0) {
+            result.add(song)
+            remainingCounts[song.id] = count - 1
+        }
+    }
+    for (song in queue) {
+        val count = remainingCounts[song.id] ?: 0
+        if (count > 0) {
+            result.add(song)
+            remainingCounts[song.id] = count - 1
+        }
+    }
+    return result
+}
+
+/**
  * Two ExoPlayers sharing one audio session. One is "active" and holds the whole queue (so
  * gapless and notification controls work natively); when a crossfade starts, the other one
  * loads the next track, the roles swap, and an equal-power curve fades one out and the other in.
@@ -467,8 +495,7 @@ class DotEngine(
             newIndex = 0
         } else {
             val orig = originalQueue ?: st.queue
-            val origIds = orig.map { it.id }.toSet()
-            newList = orig + st.queue.filterNot { it.id in origIds }
+            newList = unshuffled(orig, st.queue)
             newIndex = newList.indexOfFirst { it.id == cur.id }.coerceAtLeast(0)
             originalQueue = null
         }
@@ -492,6 +519,13 @@ class DotEngine(
         val added = songs.map { it.toMediaItem() }
         items.addAll(at, added)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { addAll(at, songs) })
+        originalQueue?.let { orig ->
+            // Insert after current track; if queued multiple times, places after the first copy
+            val curId = _state.value.current?.id
+            val origIdx = orig.indexOfFirst { it.id == curId }
+            val insertAt = if (origIdx >= 0) origIdx + 1 else orig.size
+            originalQueue = orig.toMutableList().apply { addAll(insertAt, songs) }
+        }
         active.addMediaItems(at, added)
         publish()
     }
@@ -501,14 +535,24 @@ class DotEngine(
         val added = songs.map { it.toMediaItem() }
         items.addAll(added)
         _state.value = _state.value.copy(queue = _state.value.queue + songs)
+        originalQueue?.let { orig -> originalQueue = orig + songs }
         active.addMediaItems(added)
         publish()
     }
 
     fun removeFromQueue(index: Int) {
         if (index == _state.value.index || index !in items.indices) return
+        val removed = _state.value.queue.getOrNull(index)
         items.removeAt(index)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { removeAt(index) })
+        if (removed != null) {
+            originalQueue?.let { orig ->
+                val origIdx = orig.indexOfFirst { it.id == removed.id }
+                if (origIdx >= 0) {
+                    originalQueue = orig.toMutableList().apply { removeAt(origIdx) }
+                }
+            }
+        }
         active.removeMediaItem(index)
         publish()
     }

@@ -3,7 +3,14 @@
 package com.dj.dot.ui
 
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +66,7 @@ fun SongMenuSheet(menu: SongMenu, onDismiss: () -> Unit) {
     val dot = DotApp.instance
     val app = LocalAppState.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val favs by dot.store.favourites.collectAsStateWithLifecycle()
     val lib by dot.library.data.collectAsStateWithLifecycle()
     val song = menu.song
@@ -94,10 +102,39 @@ fun SongMenuSheet(menu: SongMenu, onDismiss: () -> Unit) {
                 SheetItem("Go to artist", Icons.Rounded.Person) { done { app.push(Screen.Artist(song.artist)) } }
             }
             SheetItem("Share", Icons.Rounded.Share) {
-                done {
-                    val send = Intent(Intent.ACTION_SEND).setType("audio/*").putExtra(Intent.EXTRA_STREAM, song.uri)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(Intent.createChooser(send, song.title))
+                onDismiss()
+                scope.launch {
+                    val targetIntent = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
+                            val cutoff = System.currentTimeMillis() - 3600_000L
+                            sharedDir.listFiles()?.forEach { file ->
+                                if (file.lastModified() < cutoff) file.delete()
+                            }
+                            val origFile = File(song.path)
+                            val ext = origFile.extension.ifBlank { "mp3" }
+                            val safeTitle = song.title.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+                            val filename = origFile.name.ifBlank { "$safeTitle.$ext" }
+                            val targetFile = File(sharedDir, filename)
+                            context.contentResolver.openInputStream(song.uri)?.use { input ->
+                                targetFile.outputStream().use { output -> input.copyTo(output) }
+                            } ?: return@runCatching null
+                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", targetFile)
+                            val mimeType = context.contentResolver.getType(song.uri) ?: "audio/*"
+                            Intent(Intent.ACTION_SEND).apply {
+                                type = mimeType
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                        }.onFailure {
+                            Log.w("Dot", "Failed to prepare shared audio file", it)
+                        }.getOrNull()
+                    }
+                    if (targetIntent != null) {
+                        context.startActivity(Intent.createChooser(targetIntent, song.title))
+                    } else {
+                        Toast.makeText(context, "Could not share audio", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             if (menu.playlistId != null && !menu.playlistId.startsWith("smart:") && menu.index >= 0) {

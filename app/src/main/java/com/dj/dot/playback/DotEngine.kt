@@ -152,6 +152,8 @@ class DotEngine(
     private val players = arrayOf(newPlayer(0), newPlayer(1))
     private var a = 0
     private val active: ExoPlayer get() = players[a]
+    private val spare: ExoPlayer get() = players[1 - a]
+    private val synced = BooleanArray(2) { false }
     /** Mirrors the active player's playlist; edited in place so queue changes stay O(change). */
     private var items: MutableList<MediaItem> = ArrayList()
     private var originalQueue: List<Song>? = null
@@ -377,8 +379,11 @@ class DotEngine(
         } else {
             cancelFade()
             active.setMediaItems(items, index, 0)
+            synced[a] = true
             active.repeatMode = _state.value.repeat
             active.prepare()
+            spare.setMediaItems(items, index, 0)
+            synced[1 - a] = true
             publish()
             play()
         }
@@ -502,6 +507,11 @@ class DotEngine(
         items.addAll(at, added)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { addAll(at, songs) })
         active.addMediaItems(at, added)
+        if (fadeJob?.isActive == true) {
+            synced[1 - a] = false
+        } else if (synced[1 - a]) {
+            spare.addMediaItems(at, added)
+        }
         publish()
     }
 
@@ -511,6 +521,11 @@ class DotEngine(
         items.addAll(added)
         _state.value = _state.value.copy(queue = _state.value.queue + songs)
         active.addMediaItems(added)
+        if (fadeJob?.isActive == true) {
+            synced[1 - a] = false
+        } else if (synced[1 - a]) {
+            spare.addMediaItems(added)
+        }
         publish()
     }
 
@@ -519,6 +534,11 @@ class DotEngine(
         items.removeAt(index)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { removeAt(index) })
         active.removeMediaItem(index)
+        if (fadeJob?.isActive == true) {
+            synced[1 - a] = false
+        } else if (synced[1 - a]) {
+            spare.removeMediaItem(index)
+        }
         publish()
     }
 
@@ -527,6 +547,11 @@ class DotEngine(
         items.add(to, items.removeAt(from))
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { add(to, removeAt(from)) })
         active.moveMediaItem(from, to)
+        if (fadeJob?.isActive == true) {
+            synced[1 - a] = false
+        } else if (synced[1 - a]) {
+            spare.moveMediaItem(from, to)
+        }
         publish()
     }
 
@@ -622,7 +647,12 @@ class DotEngine(
         gain[inI] = 0f
         applyVolumes()
         inc.pauseAtEndOfMediaItems = false
-        inc.setMediaItems(items, index, 0)
+        if (synced[inI] && inc.getMediaItemAt(index).mediaId == items[index].mediaId) {
+            inc.seekTo(index, 0)
+        } else {
+            inc.setMediaItems(items, index, 0)
+            synced[inI] = true
+        }
         inc.repeatMode = _state.value.repeat
         inc.playbackParameters = playbackParams()
         inc.prepare()
@@ -704,6 +734,7 @@ class DotEngine(
     private fun setQueue(list: List<Song>) {
         items = list.mapTo(ArrayList(list.size)) { it.toMediaItem() }
         _state.value = _state.value.copy(queue = list)
+        synced.fill(false)
     }
 
     /** Swaps the queue order without interrupting the track that is playing. */
@@ -716,6 +747,13 @@ class DotEngine(
         if (idx > 0) p.removeMediaItems(0, idx)
         if (newIndex > 0) p.addMediaItems(0, items.subList(0, newIndex))
         if (newIndex + 1 < items.size) p.addMediaItems(newIndex + 1, items.subList(newIndex + 1, items.size))
+        synced[a] = true
+        if (fadeJob?.isActive == true) {
+            synced[1 - a] = false
+        } else {
+            spare.setMediaItems(items, newIndex, 0)
+            synced[1 - a] = true
+        }
         publish()
     }
 
@@ -845,7 +883,11 @@ class DotEngine(
         lastCountedId = songs[index].id
         active.repeatMode = settings.repeat.value
         active.setMediaItems(items, index, settings.queuePos.value)
+        synced[a] = true
         active.prepare()
+        spare.repeatMode = settings.repeat.value
+        spare.setMediaItems(items, index, 0)
+        synced[1 - a] = true
         publish()
         refreshLyrics(null)
     }

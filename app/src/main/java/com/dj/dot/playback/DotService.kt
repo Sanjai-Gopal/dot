@@ -22,6 +22,7 @@ import java.util.concurrent.Executors
 @OptIn(UnstableApi::class)
 class DotService : MediaSessionService() {
     private var session: MediaSession? = null
+    private var thumbnailLoader: ThumbnailLoader? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -30,9 +31,11 @@ class DotService : MediaSessionService() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val loader = ThumbnailLoader(this)
+        thumbnailLoader = loader
         session = MediaSession.Builder(this, engine.sessionPlayer)
             .setSessionActivity(open)
-            .setBitmapLoader(ThumbnailLoader(this))
+            .setBitmapLoader(loader)
             .build()
         engine.onSessionPlayerChanged = { session?.player = it }
     }
@@ -51,6 +54,8 @@ class DotService : MediaSessionService() {
         DotApp.instance.engine.onSessionPlayerChanged = null
         session?.release()
         session = null
+        thumbnailLoader?.release()
+        thumbnailLoader = null
         super.onDestroy()
     }
 }
@@ -63,10 +68,28 @@ private class ThumbnailLoader(private val context: Context) : BitmapLoader {
     override fun supportsMimeType(mimeType: String) = true
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> = executor.submit(Callable {
-        BitmapFactory.decodeByteArray(data, 0, data.size) ?: error("Could not decode artwork")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+
+        val targetSize = 512
+        var sampleSize = 1
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width > 0 && height > 0) {
+            while ((width / (sampleSize * 2)) >= targetSize && (height / (sampleSize * 2)) >= targetSize) {
+                sampleSize *= 2
+            }
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        BitmapFactory.decodeByteArray(data, 0, data.size, decodeOptions) ?: error("Could not decode artwork")
     })
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> = executor.submit(Callable {
         context.contentResolver.loadThumbnail(uri, Size(512, 512), null)
     })
+
+    fun release() {
+        executor.shutdown()
+    }
 }

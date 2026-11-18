@@ -1,5 +1,7 @@
 package com.dj.dot.playback
 
+const val SLEEP_AT_END_OF_SONG = -1L
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -170,6 +172,13 @@ class DotEngine(
     private var fadeJob: Job? = null
     private var masterJob: Job? = null
     private var sleepJob: Job? = null
+    private var sleepAtEnd = false
+
+    private fun clearSleepAtEnd() {
+        if (!sleepAtEnd) return
+        sleepAtEnd = false
+        players.forEach { it.pauseAtEndOfMediaItems = false }
+    }
     private var lastCountedId = -1L
     private var lyricsFor = -1L
     private var consecutiveErrors = 0
@@ -298,6 +307,10 @@ class DotEngine(
             if (p === active) {
                 if (playbackState == Player.STATE_READY && p.isPlaying) consecutiveErrors = 0
                 if (playbackState == Player.STATE_ENDED) {
+                    if (sleepAtEnd) {
+                        clearSleepAtEnd()
+                        _sleepAt.value = 0
+                    }
                     wantPlay = false
                     consecutiveErrors = 0
                     abandonFocus()
@@ -308,6 +321,10 @@ class DotEngine(
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (p === active && !playWhenReady && reason != Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+                if (sleepAtEnd && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
+                    clearSleepAtEnd()
+                    _sleepAt.value = 0
+                }
                 wantPlay = false
                 publish()
             }
@@ -562,15 +579,16 @@ class DotEngine(
 
     fun setSleepTimer(minutes: Int) {
         sleepJob?.cancel()
+        clearSleepAtEnd()
         if (minutes <= 0) { _sleepAt.value = 0; return }
         scheduleSleep(minutes * 60_000L)
     }
 
     fun sleepAtEndOfSong() {
-        val d = active.duration
-        if (d <= 0) return
         sleepJob?.cancel()
-        scheduleSleep(((d - active.currentPosition) / active.playbackParameters.speed).toLong())
+        sleepAtEnd = true
+        _sleepAt.value = SLEEP_AT_END_OF_SONG
+        active.pauseAtEndOfMediaItems = true
     }
 
     // ---- Crossfade ----------------------------------------------------------------------
@@ -581,9 +599,9 @@ class DotEngine(
     private fun autoCrossfadeTick() {
         val cf = settings.crossfadeMs.value.toLong()
         if (cf <= 0 || !wantPlay || fadeJob?.isActive == true || alignJob?.isActive == true) return
-        if (_state.value.repeat == Player.REPEAT_MODE_ONE) return
+        if (_state.value.repeat == Player.REPEAT_MODE_ONE || sleepAtEnd) return
         val sleep = _sleepAt.value
-        if (sleep != 0L && sleep - SystemClock.elapsedRealtime() <= cf + 1000) return
+        if (sleep > 0L && sleep - SystemClock.elapsedRealtime() <= cf + 1000) return
         val p = active
         if (!p.isPlaying) return
         val d = p.duration
@@ -646,7 +664,7 @@ class DotEngine(
         inc.stop()
         gain[inI] = 0f
         applyVolumes()
-        inc.pauseAtEndOfMediaItems = false
+        inc.pauseAtEndOfMediaItems = sleepAtEnd
         if (synced[inI] && inc.getMediaItemAt(index).mediaId == items[index].mediaId) {
             inc.seekTo(index, 0)
         } else {
@@ -799,6 +817,7 @@ class DotEngine(
             players.forEach { it.pause() }
             abandonFocus()
             wantPlay = false
+            clearSleepAtEnd()
             _sleepAt.value = 0
             publish()
             save()

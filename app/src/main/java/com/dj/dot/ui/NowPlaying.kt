@@ -2,6 +2,8 @@
 
 package com.dj.dot.ui
 
+import com.dj.dot.playback.SLEEP_AT_END_OF_SONG
+
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -445,6 +447,7 @@ private fun ToggleIcon(icon: ImageVector, on: Boolean, onClick: () -> Unit, desc
 @Composable
 private fun sleepLabel(sleepAt: Long): String {
     if (sleepAt == 0L) return "Sleep"
+    if (sleepAt == SLEEP_AT_END_OF_SONG) return "End of song"
     val left by produceState(sleepAt - SystemClock.elapsedRealtime(), sleepAt) {
         while (true) { value = sleepAt - SystemClock.elapsedRealtime(); delay(1000) }
     }

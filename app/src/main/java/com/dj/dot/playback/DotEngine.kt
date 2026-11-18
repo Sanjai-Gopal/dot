@@ -534,7 +534,7 @@ class DotEngine(
         items.addAll(at, added)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { addAll(at, songs) })
         originalQueue?.let { orig ->
-            // Insert after current track; if queued multiple times, places after the first copy
+            // Insert after current track so "play next" songs land after the current song when unshuffled
             val curId = _state.value.current?.id
             val origIdx = orig.indexOfFirst { it.id == curId }
             val insertAt = if (origIdx >= 0) origIdx + 1 else orig.size
@@ -554,7 +554,6 @@ class DotEngine(
         val added = songs.map { it.toMediaItem() }
         items.addAll(added)
         _state.value = _state.value.copy(queue = _state.value.queue + songs)
-        originalQueue?.let { orig -> originalQueue = orig + songs }
         active.addMediaItems(added)
         if (fadeJob?.isActive == true) {
             synced[1 - a] = false
@@ -566,17 +565,8 @@ class DotEngine(
 
     fun removeFromQueue(index: Int) {
         if (index == _state.value.index || index !in items.indices) return
-        val removed = _state.value.queue.getOrNull(index)
         items.removeAt(index)
         _state.value = _state.value.copy(queue = _state.value.queue.toMutableList().apply { removeAt(index) })
-        if (removed != null) {
-            originalQueue?.let { orig ->
-                val origIdx = orig.indexOfFirst { it.id == removed.id }
-                if (origIdx >= 0) {
-                    originalQueue = orig.toMutableList().apply { removeAt(origIdx) }
-                }
-            }
-        }
         active.removeMediaItem(index)
         if (fadeJob?.isActive == true) {
             synced[1 - a] = false

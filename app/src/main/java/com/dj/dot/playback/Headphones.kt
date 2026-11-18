@@ -43,6 +43,7 @@ class Headphones(private val context: Context) {
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
             addAction(ACTION_BATTERY_LEVEL_CHANGED)
         }
+        // Bluetooth process sends these protected broadcasts under its own UID, so RECEIVER_NOT_EXPORTED drops them on Android 13+.
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         refresh()
     }

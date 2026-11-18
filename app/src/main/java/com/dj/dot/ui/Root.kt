@@ -160,10 +160,10 @@ val LocalSharedTransition = staticCompositionLocalOf<SharedTransitionScope?> { n
 val LocalNowPlayingVisibility = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
 const val NOW_PLAYING_ART = "now-playing-art"
 
-private fun audioPermission() =
+internal fun audioPermission() =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
 
-private fun hasAudio(context: Context) =
+internal fun hasAudio(context: Context) =
     ContextCompat.checkSelfPermission(context, audioPermission()) == PackageManager.PERMISSION_GRANTED
 
 private fun openAppSettings(context: Context) {

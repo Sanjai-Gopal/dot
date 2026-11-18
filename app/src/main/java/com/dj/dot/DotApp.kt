@@ -8,6 +8,7 @@ import com.dj.dot.playback.DotEngine
 import com.dj.dot.playback.GlyphLights
 import com.dj.dot.playback.Headphones
 import com.dj.dot.ui.ArtLoader
+import com.dj.dot.ui.hasAudio
 import com.dj.dot.widget.DotTileService
 import com.dj.dot.widget.DotWidget
 import kotlinx.coroutines.MainScope
@@ -37,6 +38,9 @@ class DotApp : Application() {
             settings.tempoVersion.set(2)
         }
         library = Library(this, scope, settings, onScanComplete = { ArtLoader.clearMissing() })
+        if (hasAudio(this)) {
+            library.start()
+        }
         engine = DotEngine(this, settings, store, library)
         val playing = engine.state.map { it.playing }.distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, false)
         glyph = GlyphLights(this, engine.spectrum, settings, playing) { engine.progress }

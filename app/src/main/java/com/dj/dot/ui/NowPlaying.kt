@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -90,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.dj.dot.DotApp
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 private enum class Panel { Art, Lyrics, Queue }
 
@@ -105,6 +107,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     val song = state.current ?: return
     var panel by remember { mutableStateOf(Panel.Art) }
     var sleepSheet by remember { mutableStateOf(false) }
+    var speedSheet by remember { mutableStateOf(false) }
+    val speed by dot.settings.speed.flow.collectAsStateWithLifecycle()
     var visualsSheet by remember { mutableStateOf(false) }
     val glyphMode by dot.settings.glyphMode.flow.collectAsStateWithLifecycle()
     var pullDown by remember { mutableFloatStateOf(0f) }
@@ -240,6 +244,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
                 Pill("Lyrics", { panel = if (panel == Panel.Lyrics) Panel.Art else Panel.Lyrics }, selected = panel == Panel.Lyrics, icon = Icons.Rounded.Lyrics)
                 Pill("Queue", { panel = if (panel == Panel.Queue) Panel.Art else Panel.Queue }, selected = panel == Panel.Queue, icon = Icons.AutoMirrored.Rounded.QueueMusic)
+                Pill(if (speed == 1f) "Speed" else "%.2fX".format(speed), { speedSheet = true }, selected = speed != 1f, icon = Icons.Rounded.Speed)
                 Pill(sleepLabel(sleepAt), { sleepSheet = true }, selected = sleepAt != 0L, icon = Icons.Rounded.Bedtime)
             }
         }
@@ -258,6 +263,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     }
 
     if (sleepSheet) SleepSheet(onDismiss = { sleepSheet = false })
+    if (sleepSheet) SleepSheet(onDismiss = { sleepSheet = false })
+    if (speedSheet) SpeedSheet(onDismiss = { speedSheet = false })
     if (visualsSheet && viz != null) VisualsSheet(song, state.playing, viz = viz, onDismiss = { visualsSheet = false })
 }
 
@@ -504,6 +511,75 @@ private fun SleepSheet(onDismiss: () -> Unit) {
                 Pill("End of song", { engine.sleepAtEndOfSong(); onDismiss() })
                 if (sleepAt != 0L) Pill("Turn off", { engine.setSleepTimer(0); onDismiss() })
             }
+        }
+    }
+}
+
+@Composable
+private fun SpeedSheet(onDismiss: () -> Unit) {
+    val dot = DotApp.instance
+    val speed by dot.settings.speed.flow.collectAsStateWithLifecycle()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Dot.Surface2,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .navigationBarsPadding().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    DotTitle("Playback speed", size = 24.sp)
+                    Label("Adjust playback tempo")
+                }
+                if (speed != 1f) {
+                    Pill(
+                        "Reset",
+                        {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                            dot.engine.setSpeed(1f)
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                IconBtn(Icons.Rounded.Close, onDismiss, tint = Dot.Muted, description = "Close speed sheet")
+            }
+            Spacer(Modifier.height(16.dp))
+            DotTitle("%.2fX".format(speed), size = 32.sp, color = Dot.White)
+            Spacer(Modifier.height(12.dp))
+            DotSlider(
+                value = (speed - 0.5f) / 1.5f,
+                onChange = {
+                    val s = ((0.5f + it * 1.5f) * 20).roundToInt() / 20f
+                    dot.engine.setSpeed(s)
+                },
+                steps = 30,
+                bubble = { "%.2fX".format(0.5f + it * 1.5f) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { s ->
+                    val isSelected = (speed - s).let { if (it < 0) -it else it } < 0.01f
+                    val label = when (s) {
+                        1.0f -> "1X"
+                        2.0f -> "2X"
+                        else -> "%.2fX".format(s)
+                    }
+                    Pill(
+                        label,
+                        {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                            dot.engine.setSpeed(s)
+                        },
+                        selected = isSelected,
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }

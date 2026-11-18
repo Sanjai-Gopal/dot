@@ -5,12 +5,6 @@ package com.dj.dot.ui
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.FileProvider
-import java.io.File
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
@@ -102,23 +97,33 @@ fun SongMenuSheet(menu: SongMenu, onDismiss: () -> Unit) {
                 SheetItem("Go to artist", Icons.Rounded.Person) { done { app.push(Screen.Artist(song.artist)) } }
             }
             SheetItem("Share", Icons.Rounded.Share) {
+                Toast.makeText(context, "Preparing audio...", Toast.LENGTH_SHORT).show()
                 onDismiss()
-                scope.launch {
+                val shareScope = app.shareScope ?: scope
+                shareScope.launch {
                     val targetIntent = withContext(Dispatchers.IO) {
                         runCatching {
-                            val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
+                            val parentSharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
                             val cutoff = System.currentTimeMillis() - 3600_000L
-                            sharedDir.listFiles()?.forEach { file ->
-                                if (file.lastModified() < cutoff) file.delete()
+                            parentSharedDir.listFiles()?.forEach { file ->
+                                if (file.lastModified() < cutoff) file.deleteRecursively()
                             }
                             val origFile = File(song.path)
                             val ext = origFile.extension.ifBlank { "mp3" }
                             val safeTitle = song.title.replace(Regex("[/\\\\:*?\"<>|]"), "_")
                             val filename = origFile.name.ifBlank { "$safeTitle.$ext" }
-                            val targetFile = File(sharedDir, filename)
-                            context.contentResolver.openInputStream(song.uri)?.use { input ->
-                                targetFile.outputStream().use { output -> input.copyTo(output) }
-                            } ?: return@runCatching null
+                            val songDir = File(parentSharedDir, song.id.toString()).apply { mkdirs() }
+                            val targetFile = File(songDir, filename)
+
+                            val isUpToDate = targetFile.exists() && targetFile.length() > 0L &&
+                                (!origFile.exists() || targetFile.lastModified() >= origFile.lastModified())
+
+                            if (!isUpToDate) {
+                                context.contentResolver.openInputStream(song.uri)?.use { input ->
+                                    targetFile.outputStream().use { output -> input.copyTo(output) }
+                                } ?: return@runCatching null
+                            }
+
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", targetFile)
                             val mimeType = context.contentResolver.getType(song.uri) ?: "audio/*"
                             Intent(Intent.ACTION_SEND).apply {

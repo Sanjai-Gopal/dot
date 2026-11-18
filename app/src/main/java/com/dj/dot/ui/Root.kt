@@ -77,6 +77,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dj.dot.DotApp
 import com.dj.dot.data.Song
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 
 sealed interface Screen {
@@ -96,6 +97,7 @@ sealed interface Screen {
 data class SongMenu(val song: Song, val playlistId: String? = null, val index: Int = -1)
 
 class AppState(var onScreenPopped: ((Screen) -> Unit)? = null) {
+    var shareScope: CoroutineScope? = null
     val stack = mutableStateListOf<Screen>(Screen.Home)
     var nowPlaying by mutableStateOf(false)
     var party by mutableStateOf(false)
@@ -246,8 +248,12 @@ private fun PermissionScreen(
 private fun MainUi() {
     val holder = rememberSaveableStateHolder()
     val app = rememberSaveable(saver = AppStateSaver) { AppState() }
+    val rootScope = androidx.compose.runtime.rememberCoroutineScope()
     // Restored states are built without the callback, so attach it here for both cases.
-    SideEffect { app.onScreenPopped = { holder.removeState(it.key) } }
+    SideEffect {
+        app.onScreenPopped = { holder.removeState(it.key) }
+        app.shareScope = rootScope
+    }
     val engine = DotApp.instance.engine
     val state by engine.state.collectAsStateWithLifecycle()
 

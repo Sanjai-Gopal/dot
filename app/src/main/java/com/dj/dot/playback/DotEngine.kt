@@ -180,6 +180,7 @@ class DotEngine(
 
     private val audioManager = app.getSystemService(AudioManager::class.java)
     private var resumeOnGain = false
+    private var hasFocus = false
     private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
         .setAudioAttributes(
             android.media.AudioAttributes.Builder()
@@ -295,7 +296,12 @@ class DotEngine(
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (p === active) {
                 if (playbackState == Player.STATE_READY && p.isPlaying) consecutiveErrors = 0
-                if (playbackState == Player.STATE_ENDED) { wantPlay = false; consecutiveErrors = 0; publish() }
+                if (playbackState == Player.STATE_ENDED) {
+                    wantPlay = false
+                    consecutiveErrors = 0
+                    abandonFocus()
+                    publish()
+                }
             }
         }
 
@@ -317,6 +323,7 @@ class DotEngine(
             if (consecutiveErrors >= maxErrors) {
                 consecutiveErrors = 0
                 wantPlay = false
+                abandonFocus()
                 publish()
                 library.rescan()
                 scope.launch(Dispatchers.Main) {
@@ -410,16 +417,18 @@ class DotEngine(
         publish()
     }
 
-    fun pause(fade: Boolean = settings.fadeOnPause.value) {
+    fun pause(fade: Boolean = settings.fadeOnPause.value, abandonFocus: Boolean = true) {
         wantPlay = false
         masterJob?.cancel()
         if (fade && active.isPlaying) {
             masterJob = scope.launch {
                 rampMaster(0f, 350)
                 players.forEach { it.pause() }
+                if (abandonFocus) abandonFocus()
             }
         } else {
             players.forEach { it.pause() }
+            if (abandonFocus) abandonFocus()
         }
         publish()
         save()
@@ -752,23 +761,52 @@ class DotEngine(
             players.forEach { it.pause() }
             wantPlay = false
             _sleepAt.value = 0
+            abandonFocus()
             publish()
             save()
         }
     }
 
-    private fun requestFocus() =
-        audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    private fun requestFocus(): Boolean {
+        if (hasFocus) return true
+        val granted = audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        hasFocus = granted
+        return granted
+    }
+
+    private fun abandonFocus() {
+        if (!hasFocus) return
+        audioManager.abandonAudioFocusRequest(focusRequest)
+        hasFocus = false
+        resumeOnGain = false
+    }
+
+    fun release() {
+        abandonFocus()
+    }
 
     private fun onFocusChange(change: Int) {
         when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> { resumeOnGain = false; pause(fade = true) }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> { resumeOnGain = wantPlay; pause(fade = false) }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> { duck = 0.25f; applyVolumes() }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnGain = false
+                pause(fade = true, abandonFocus = true)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                resumeOnGain = wantPlay
+                pause(fade = false, abandonFocus = false)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                duck = 0.25f
+                applyVolumes()
+            }
             AudioManager.AUDIOFOCUS_GAIN -> {
+                hasFocus = true
                 duck = 1f
                 applyVolumes()
-                if (resumeOnGain) { resumeOnGain = false; play() }
+                if (resumeOnGain) {
+                    resumeOnGain = false
+                    play()
+                }
             }
         }
     }

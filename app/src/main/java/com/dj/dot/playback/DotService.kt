@@ -49,6 +49,7 @@ class DotService : MediaSessionService() {
 
     override fun onDestroy() {
         DotApp.instance.engine.onSessionPlayerChanged = null
+        DotApp.instance.engine.release()
         session?.release()
         session = null
         super.onDestroy()

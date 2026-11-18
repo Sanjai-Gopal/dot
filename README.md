@@ -598,7 +598,6 @@ Debug builds install as a separate app, `com.dj.dot.debug`, next to a release in
 | `WAKE_LOCK` | Don't stall with the screen off |
 | `com.nothing.ketchum.permission.ENABLE` | Drive the Glyph lights on Nothing phones |
 | `BLUETOOTH_CONNECT` | Optional, asked from the Sound screen, to show the earphones' battery |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Optional, asked from Settings |
 
 Dot has no internet permission and no all-files access. `.lrc` files are read only from folders you choose in the system folder picker, which needs no permission.
 
